@@ -1,9 +1,11 @@
 import os
+import random
 import os.path
+import numpy as np
+
 import torch
 from torch.utils.data import DataLoader
-import random
-import numpy as np
+
 
 
 def reset_seeds(seed):

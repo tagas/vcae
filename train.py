@@ -1,31 +1,31 @@
 import os
-import torch
 import numpy as np
-import utils
-import torch.nn as nn
+from sklearn.cluster import KMeans
+
+import torch
 import torchvision
+import torch.nn as nn
 from tqdm import tqdm
 from torch import optim
-import metric as metric
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.utils as vutils
 from torchvision import datasets, transforms
-from data import TRAIN_DATASETS, DATASET_CONFIGS, TEST_DATASETS
-from sklearn.cluster import KMeans
-from torch import distributions as dist
+
+import utils
+import metric as metric
 from model import get_noise
+from torch import distributions as dist
+from data import TRAIN_DATASETS, DATASET_CONFIGS, TEST_DATASETS
 
-
-import rpy2.robjects as robjects
 import rpy2.robjects.numpy2ri
-
-robjects.numpy2ri.activate()
+import rpy2.robjects as robjects
 from rpy2.robjects.packages import importr
+robjects.numpy2ri.activate()
+
 
 base = importr('base')
 rvinecop = importr('rvinecopulib')
-
 
 def train_model(model, dataset, ds_name,
                 epochs=10,
@@ -39,11 +39,13 @@ def train_model(model, dataset, ds_name,
                 image_log_interval=20,
                 model_log_interval=20,
                 checkpoint_dir='./checkpoints',
+                results_dir='./res',
                 resume=False,
                 cuda=False,
                 seed=0,
                 device=None,
                 cores=1):
+    
     if resume:
         epoch_start = utils.load_checkpoint(model, checkpoint_dir)
     else:
@@ -51,11 +53,11 @@ def train_model(model, dataset, ds_name,
 
     fixed_noise = torch.rand(sample_size, model.z_size).to(device)
 
-    if model.model_name in ['vae', 'cvae', 'vae2', 'cvae2']:
+    if model.model_name in ['vae', 'vae2', 'vae3']:
         m = dist.Normal(torch.Tensor([0.0]).to(device), torch.Tensor([1.0]).to(device))
         fixed_noise = m.icdf(fixed_noise)
 
-    output_folder = './results/' + ds_name
+    output_folder = results_dir + ds_name
     resfile_prefix = ds_name + "_" + \
                      model.model_name + \
                      "_ld_" + \
@@ -67,6 +69,7 @@ def train_model(model, dataset, ds_name,
 
     data_root = './datasets'
 
+    # DEC-VINE preclustering setup and training
     if model.model_name in ['dec_vine', 'dec_vine2', 'dec_vine3']:
 
         # load pre-trained AE
@@ -80,14 +83,15 @@ def train_model(model, dataset, ds_name,
         pretrain_files = [filename for filename in os.listdir(checkpoint_dir) if filename.startswith(pretrain_prefix)]
         pretrain_epochs = [int(filename.replace(pretrain_prefix + "_", "")) for filename in pretrain_files]
         pretrain_path = os.path.join(checkpoint_dir, pretrain_files[pretrain_epochs.index(max(pretrain_epochs))])
+
         model.pretrain(pretrain_path)
 
         # form initial cluster centres
         data_loader = utils.get_data_loader(dataset, batch_size, cuda=cuda)
         data_stream = tqdm(enumerate(data_loader, 1))
         features = []
-        for batch_index, (x, _, _) in data_stream:
 
+        for batch_index, (x, _, _) in data_stream:
             tmp_x = Variable(x).to(device)
             if model.model_name == 'dec_vine':
                 z = model.ae.encoder(tmp_x)
@@ -102,13 +106,17 @@ def train_model(model, dataset, ds_name,
         y_pred = kmeans.fit_predict(torch.cat(features).detach().cpu().numpy())
         model.cluster_layer.data = torch.tensor(kmeans.cluster_centers_).to(device)
 
+    # load a pre-trained state for any model
     pretrain=0
+    
     if  pretrain==1 and model.model_name == 'ae_vine3':
-        pretrain_prefix = resfile_prefix#ds_name + '_ae_vine3'
+        
+        pretrain_prefix = resfile_prefix
         pretrain_files = [filename for filename in os.listdir(checkpoint_dir) if filename.startswith(pretrain_prefix)]
         pretrain_epochs = [int(filename.replace(pretrain_prefix + "_", "")) for filename in pretrain_files]
         pretrain_path = os.path.join(checkpoint_dir, pretrain_files[pretrain_epochs.index(max(pretrain_epochs))])
         pretrained_ae = torch.load(pretrain_path, map_location=device)
+        
         model.load_state_dict(pretrained_ae['state'])
         print('load pretrained ae3 from', pretrain_path)
 
@@ -126,8 +134,8 @@ def train_model(model, dataset, ds_name,
 
     for epoch in range(epoch_start, epochs + 1):
         print("Epoch {}".format(epoch))
+        
         if model.model_name == "dec_vine" or model.model_name == "dec_vine2":
-            # update target distribution p
             model.eval()
             p = []
             indices = []
@@ -153,16 +161,14 @@ def train_model(model, dataset, ds_name,
         for batch_index, (x, _, idx) in data_stream:
             
             # learning rate decay
-            if  model.model_name == 'gan' and (epoch) == 8:# and dataset == "CelebA":
+            if  model.model_name == 'gan' and (epoch) == 8:
                     opt_g.param_groups[0]['lr'] /= 10
                     opt_d.param_groups[0]['lr'] /= 10
-                    #print("learning rate change!")
 
-            if model.model_name == 'gan' and (epoch) == 15: # and dataset == "CelebA":
+            if model.model_name == 'gan' and (epoch) == 15:
                     opt_g.param_groups[0]['lr'] /= 10
                     opt_d.param_groups[0]['lr'] /= 10
-                    #print("learning rate change!")            
-
+            
             iteration = (epoch - 1) * (len(dataset) // batch_size) + batch_index
             x = Variable(x).to(device)
             idx = Variable(idx).to(device)
@@ -171,7 +177,6 @@ def train_model(model, dataset, ds_name,
             if model.model_name == 'gan':
                 # train Discriminator
                 real_data = Variable(x.cuda())
-                #print(real_data.shape)
                 prob_fake = model.net_d(model.net_g(get_noise(real_data.size(0)).to(device)))
                 prob_real = model.net_d(real_data)
 
@@ -202,15 +207,15 @@ def train_model(model, dataset, ds_name,
                     penalization_loss = 10*F.kl_div(q.log(), p_batch)
                     del p_batch, q
 
-                elif model.model_name == 'cvae' or model.model_name == "cvae2" or model.model_name=="cvae3":
-                    (mean, logvar, atanhcor), x_reconstructed = model(x)
-                    penalization_loss = model.kl_divergence_loss(mean, logvar, atanhcor)
-
                 elif model.model_name == 'vae' or model.model_name == "vae2" or model.model_name=="vae3":
                     (mean, logvar), x_reconstructed = model(x)
                     penalization_loss = model.kl_divergence_loss(mean, logvar)
 
-                reconstruction_loss = reconstruction_criterion(x_reconstructed, x) / x.size(0)
+                if model.model_name == 'vae2' or model.model_name == 'vae3':
+
+                    reconstruction_loss = reconstruction_criterion(x_reconstructed, x)# / x.size(0)
+                else:
+                    reconstruction_loss = reconstruction_criterion(x_reconstructed, x) / x.size(0)
 
                 if model.model_name == 'ae_vine' or model.model_name == 'ae_vine2' or model.model_name == 'ae_vine3':
                     loss = reconstruction_loss
@@ -233,15 +238,7 @@ def train_model(model, dataset, ds_name,
                         loss_d,
                         seed
                     ))
-                    '''                   
-                    print("\n{:<12} | {} | {} | {} | {} ".format(
-                        model.model_name,
-                        iteration,
-                        loss_g,
-                        loss_d,
-                        seed
-                    ))
-                    '''
+
                 else:
                     if model.model_name == 'ae_vine' or model.model_name == 'ae_vine2' or model.model_name == 'ae_vine3':
                         f.write("\n{:<12} | {} | {} | {} ".format(
@@ -325,7 +322,6 @@ def train_model(model, dataset, ds_name,
                         break
 
                 features = torch.cat(features).numpy()
-                #np.savetxt(resfile_prefix + '_features' + str(epoch) + '_.csv', features, delimiter=",")
                 copula_controls = base.list(family_set="tll", trunc_lvl=5, cores=cores)
                 vine_obj = rvinecop.vine(features, copula_controls=copula_controls)
 
@@ -336,7 +332,7 @@ def train_model(model, dataset, ds_name,
                 del x, e, encoded, vine_obj,data_loader_vine
 
             elif model.model_name == 'gan':
-                fake = model.net_g(fix_noise.to(device)).data.cpu() #+ 0.5
+                fake = model.net_g(fix_noise.to(device)).data.cpu() + 0.5
                 print(fake.shape)
             else:
 
@@ -350,8 +346,8 @@ def train_model(model, dataset, ds_name,
                               normalize=True)
             del fake
         
-        if epoch % 10 == 0: 
-            
+        if epoch > 0 and epoch % 2 == 0: 
+            eval_size = 2000 
             s = metric.compute_score_raw(ds_name, dataset, img_size, data_root,
                                          eval_size, batch_size,
                                          output_folder + '/real/',

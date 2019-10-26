@@ -1,21 +1,24 @@
 import os
 import ot
 import pdb
-import timeit
 import math
+import timeit
+
+from scipy.stats import entropy
+from numpy.linalg import norm
+from scipy import linalg
 import numpy as np
+
 import torch
 from tqdm import tqdm
 from torch import nn
 import torch.nn.functional as F
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
 import torchvision.utils as vutils
 import torchvision.models as models
+import torchvision.datasets as dset
+import torchvision.transforms as transforms
+
 from data import TRAIN_DATASETS,TEST_DATASETS, DATASET_CONFIGS
-from scipy.stats import entropy
-from numpy.linalg import norm
-from scipy import linalg
 from model import get_noise
 
 def give_name(iter):  # 7 digit name.
@@ -31,14 +34,14 @@ def sample_fake(model, nz, sample_size, batch_size, save_folder, device="cpu"):
     except OSError:
         pass
 
-    ae_vine_models = ['ae_vine', 'ae_vine2', 'dec_vine', 'dec_vine2','ae_vine3', "dec_vine3"]
+    ae_vine_models = ['ae_vine', 'ae_vine2', 'dec_vine', 'dec_vine2','ae_vine3', 'dec_vine3']
 
-    if model.model_name == "gan":
+    if model.model_name == 'gan':
 
         iter = 0
         for i in range(0, 1 + sample_size):
             noise = get_noise(1).to(device)
-            fake = model.sample(noise)
+            fake = 0.5*model.sample(noise) + 0.5
             fake = fake.reshape(1, model.channel_num,
                                 model.image_size, model.image_size)
 

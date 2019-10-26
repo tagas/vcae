@@ -2,12 +2,14 @@
 
 import os
 import argparse
+
 import torch
 import torchvision
+
 from train import train_model
 from utils import reset_seeds
 from data import TRAIN_DATASETS, DATASET_CONFIGS
-from model import ae_vine, ae_vine2, dec_vine, dec_vine2, vae, vae2,vae3, cvae, gan#,# cvae2,cvae3,cvae3,cvae3, ae_vine3, dec_vine3, gan_2
+from model import ae_vine, ae_vine2, dec_vine, dec_vine2, vae, vae2, vae3, gan
 
 
 parser = argparse.ArgumentParser(description='Experiment 1')
@@ -25,12 +27,12 @@ parser.add_argument('--sample-size', type=int, default=64)
 parser.add_argument('--image-size', type=int, default=32)
 parser.add_argument('--evaluation_size', type=int, default=2000)
 
-parser.add_argument('--lr', type=float, default=5e-03)
+parser.add_argument('--lr', type=float, default=1e-03)
 parser.add_argument('--weight-decay', type=float, default=1e-03)
 
 parser.add_argument('--loss-log-interval', type=int, default=100)
 parser.add_argument('--image-log-interval', type=int, default=20)
-parser.add_argument('--model-log-interval', type=int, default=50)
+parser.add_argument('--model-log-interval', type=int, default=100)
 parser.add_argument('--resume', action='store_true')
 parser.add_argument('--checkpoint-dir', type=str, default='./checkpoints')
 parser.add_argument('--results-dir', type=str, default='./results')
@@ -60,13 +62,12 @@ if __name__ == '__main__':
 
     if args.dataset in ['svhn', 'mnist']:
         gan_type = 0
-        init_channel = 16
+        init_channel = 32
     else:
         gan_type = 1
-        init_channel = 64#128#128
+        init_channel = 64
 
-    print("Gan type ", gan_type)
-    if args.model in ["ae_vine", "vae", "cvae"]:
+    if args.model in ["ae_vine", "vae"]:
         model = model_name(
             label=args.dataset,
             image_size=dataset_config['size'],
@@ -87,7 +88,7 @@ if __name__ == '__main__':
             device=device
         )
 
-    elif args.model in ["ae_vine2", "vae2", "vae3",  "cvae2", "cvae3", "ae_vine2c", "ae_vine3"]:
+    elif args.model in ["ae_vine2", "vae2", "vae3", "ae_vine2c", "ae_vine3"]:
         model = model_name(
             image_size=dataset_config['size'],
             hidden_dim=100,
@@ -99,11 +100,9 @@ if __name__ == '__main__':
         model = model_name(latent=args.z_size,
                            image_size=dataset_config['size'],
                            image_channel=dataset_config['channels'],
-                           init_channel=init_channel,
-			   gan_type=gan_type)
+                           init_channel=init_channel)
 
     model.to(device)
-    print(model)
 
     print()
     print("Model name: ", model.model_name)
@@ -122,9 +121,10 @@ if __name__ == '__main__':
             sample_size=args.sample_size,
             eval_size=evaluation_sample_size,
             img_size=image_size,
-            lr=1e-3,
+            lr=args.lr,
             weight_decay=args.weight_decay,
             checkpoint_dir=args.checkpoint_dir,
+            results_dir=args.results_dir,
             loss_log_interval=args.loss_log_interval,
             image_log_interval=args.image_log_interval,
             model_log_interval=args.model_log_interval,

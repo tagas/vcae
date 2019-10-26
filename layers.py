@@ -29,3 +29,4 @@ def _linear(in_size, out_size, relu=True):
         nn.Linear(in_size, out_size),
         nn.ReLU(),
     ) if relu else nn.Linear(in_size, out_size)
+
